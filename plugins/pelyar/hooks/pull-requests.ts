@@ -65,11 +65,15 @@ export function parsePullRequests(result: McpToolResult): PullRequest[] {
 // ---- GitHub, through `gh api graphql`: one query for my open PRs, the ones I am asked to review and
 // the ones I reviewed already (GitHub drops a review request once the review is in).
 
+// The most PRs a GitHub search or a Bitbucket dashboard list asks for: a list this long may have left
+// some out.
+export const PR_PAGE = 25
+
 export const GITHUB_QUERY = `query($mine: String!, $requested: String!, $reviewed: String!) {
   viewer { login }
-  mine: search(query: $mine, type: ISSUE, first: 25) { nodes { ...pr } }
-  requested: search(query: $requested, type: ISSUE, first: 25) { nodes { ...pr } }
-  reviewed: search(query: $reviewed, type: ISSUE, first: 25) { nodes { ...pr } }
+  mine: search(query: $mine, type: ISSUE, first: ${PR_PAGE}) { nodes { ...pr } }
+  requested: search(query: $requested, type: ISSUE, first: ${PR_PAGE}) { nodes { ...pr } }
+  reviewed: search(query: $reviewed, type: ISSUE, first: ${PR_PAGE}) { nodes { ...pr } }
 }
 fragment pr on PullRequest {
   number title url isDraft mergeable reviewDecision headRefOid

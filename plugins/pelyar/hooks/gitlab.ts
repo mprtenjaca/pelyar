@@ -8,12 +8,14 @@ export function glabArgv(host: string, endpoint: string): string[] {
   return ['glab', 'api', ...(host === '' ? [] : ['--hostname', host]), endpoint]
 }
 
-const OPEN = 'state=opened&per_page=25'
+// The most merge requests a list holds: a list this long may have left some out.
+export const GITLAB_PAGE = 25
+const OPEN = `state=opened&per_page=${GITLAB_PAGE}`
 export const GITLAB_USER = 'user'
 export const GITLAB_MINE = `merge_requests?scope=created_by_me&${OPEN}`
 export const GITLAB_REVIEWING = `merge_requests?scope=reviews_for_me&${OPEN}`
-export const gitlabApprovedBy = (username: string) => `merge_requests?scope=reviews_for_me&${OPEN}&approved_by_usernames[]=${encodeURIComponent(username)}`
-// Who approved one merge request: asked for each of mine, whose approvals the list leaves out.
+// Who approved one merge request, asked for each: the lists leave approvals out, and the filter by
+// approver (`approved_by_usernames`) is a paid feature that GitLab Free ignores.
 export const gitlabApprovals = (projectId: number, iid: number) => `projects/${projectId}/merge_requests/${iid}/approvals`
 
 // The approvals answer: `{ approved_by: [{ user: { username } }] }`.
@@ -41,8 +43,7 @@ function mergeRequestOf(value: unknown, approvals: Approvals): PullRequest | nul
   const globalId = field(value, 'id')
   if (typeof iid !== 'number') return null
   const approvers = typeof globalId === 'number' ? (approvals.get(globalId) ?? new Set<string>()) : new Set<string>()
-  // `group/project!12` names the project the merge request lives in.
-  const repo = stringAt(value, 'references', 'full').replace(/!\d+$/, '')
+  const repo = repoOf(value)
   const sha = stringAt(value, 'sha')
   const status = stringAt(value, 'detailed_merge_status')
   const reviewers = field(value, 'reviewers')
@@ -53,7 +54,7 @@ function mergeRequestOf(value: unknown, approvals: Approvals): PullRequest | nul
     return { slug, status: isApproved ? 'APPROVED' : 'UNAPPROVED', lastReviewedCommit: isApproved ? sha : '' }
   })
   return {
-    key: `gitlab:${repo}#${iid}`,
+    key: keyOf(repo, iid),
     source: 'gitlab',
     id: iid,
     repo,
@@ -85,16 +86,18 @@ function listOf(stdout: string): unknown[] {
   return parsed
 }
 
-// Where each merge request of a list lives, to ask for its approvals: global id, project id, iid.
-export function approvalTargetsOf(stdout: string): { id: number; projectId: number; iid: number }[] {
+// `group/project!12` names the project the merge request lives in.
+const repoOf = (value: unknown) => stringAt(value, 'references', 'full').replace(/!\d+$/, '')
+const keyOf = (repo: string, iid: number) => `gitlab:${repo}#${iid}`
+
+// Where each merge request of a list lives, to ask for its approvals: its key as the panel has it,
+// global id, project id, iid.
+export function approvalTargetsOf(stdout: string): { key: string; id: number; projectId: number; iid: number }[] {
   return listOf(stdout).flatMap(item => {
     const [id, projectId, iid] = [field(item, 'id'), field(item, 'project_id'), field(item, 'iid')]
-    return typeof id === 'number' && typeof projectId === 'number' && typeof iid === 'number' ? [{ id, projectId, iid }] : []
+    return typeof id === 'number' && typeof projectId === 'number' && typeof iid === 'number' ? [{ key: keyOf(repoOf(item), iid), id, projectId, iid }] : []
   })
 }
 
-// The global ids of a list of merge requests (the approved-by-me list), to mark them in the others.
-export function idsOf(stdout: string): Set<number> {
-  const parsed: unknown = JSON.parse(stdout)
-  return new Set((Array.isArray(parsed) ? parsed : []).map(item => field(item, 'id')).filter((id): id is number => typeof id === 'number'))
-}
+export const countOf = (stdout: string) => listOf(stdout).length
+

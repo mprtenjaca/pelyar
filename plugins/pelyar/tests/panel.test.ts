@@ -1133,6 +1133,18 @@ describe('ticket', () => {
     expect(textOf(await $.ui.render(PANE))).toContain('ENG-42 · In Progress Login loops')
   })
 
+  test('a Jira that hangs on the key gives way to Linear after its 20 seconds', async ($, on) => {
+    const kept = world(on, {
+      branch: 'feature/ENG-42-login',
+      jiraHangs: true,
+      linearIssue: { identifier: 'ENG-42', title: 'Login loops', url: 'https://linear.app/acme/issue/ENG-42', status: 'In Progress', statusType: 'started' },
+    })
+    await $.session.start(SESSION)
+    await kept.clock.advance(20_001)
+
+    expect(textOf(await $.ui.render(PANE))).toContain('ENG-42 · In Progress Login loops')
+  })
+
   test('a Jira failure is said when no tracker has the key', async ($, on) => {
     const kept = world(on, { branch: 'feature/PROJ-42-login', jiraError: 'Service unavailable', linearIssue: null })
     await $.session.start(SESSION)
@@ -1850,16 +1862,17 @@ describe('GitLab and the ticket list', () => {
     }
   }
 
-  test('glab lists my merge requests with who approved them, and the ones I review, my approval read from its own list', async ($, on) => {
+  test('glab lists my merge requests and the ones I review, with who approved each', async ($, on) => {
     const reviewing = [mergeRequest(8, 'Rate limits', 'Alex', { reviewers: ['sam'] }), mergeRequest(9, 'Cache headers', 'Robin', { reviewers: ['sam'] })]
     const kept = world(on, {
       onlyServers: [],
       gitlab: endpoint => {
         if (endpoint === 'user') return { username: 'sam' }
-        if (endpoint.includes('approved_by_usernames[]=sam')) return [reviewing[1]]
-        // Robin approved !3 without being a reviewer; nobody approved !4.
+        // Robin approved !3 without being a reviewer; nobody approved !4; I approved !9.
         if (endpoint === 'projects/42/merge_requests/3/approvals') return { approved_by: [{ user: { username: 'alex' } }, { user: { username: 'robin' } }] }
         if (endpoint === 'projects/42/merge_requests/4/approvals') return { approved_by: [] }
+        if (endpoint === 'projects/42/merge_requests/8/approvals') return { approved_by: [] }
+        if (endpoint === 'projects/42/merge_requests/9/approvals') return { approved_by: [{ user: { username: 'sam' } }] }
         if (endpoint.includes('scope=created_by_me'))
           return [mergeRequest(3, 'Ready one', 'Sam', { status: 'mergeable', reviewers: ['alex'] }), mergeRequest(4, 'Red one', 'Sam', { status: 'ci_must_pass', reviewers: ['alex'] })]
         if (endpoint.includes('scope=reviews_for_me')) return reviewing
@@ -1875,6 +1888,31 @@ describe('GitLab and the ticket list', () => {
     expect(text).toContain('[!8]acme/apito review')
     expect(text).toContain('[!9]acme/apiapproved')
     expect(text).toContain('2 open · 1 to review')
+  })
+
+  test('approvals that could not be read keep the last ones, with no toast when they come back', async ($, on) => {
+    let isApprovalsDown = false
+    const kept = world(on, {
+      onlyServers: [],
+      gitlab: endpoint => {
+        if (endpoint === 'user') return { username: 'sam' }
+        if (endpoint === 'projects/42/merge_requests/3/approvals') return isApprovalsDown ? undefined : { approved_by: [{ user: { username: 'alex' } }] }
+        if (endpoint.includes('scope=created_by_me')) return [mergeRequest(3, 'Ready one', 'Sam', { reviewers: ['alex'] })]
+        if (endpoint.includes('scope=reviews_for_me')) return []
+        return undefined
+      },
+    })
+    await $.session.start(SESSION)
+    await kept.clock.advance(1)
+    expect(textOf(await $.ui.render(PANE))).toContain('[!3]acme/apiready✓1/1')
+
+    isApprovalsDown = true
+    await kept.clock.advance(5 * 60_000)
+    expect(textOf(await $.ui.render(PANE))).toContain('[!3]acme/apiready✓1/1')
+    isApprovalsDown = false
+    await kept.clock.advance(5 * 60_000)
+
+    expect(kept.toasts.filter(text => text.includes('approved'))).toEqual([])
   })
 
   test('a logged-out glab is left out on auto, and said with the source set to gitlab', { options: { prSource: 'gitlab', showTickets: false } }, async ($, on) => {
@@ -1978,6 +2016,14 @@ describe('setup', () => {
     expect(textOf(await $.ui.render(PANE))).not.toContain('Set up')
   })
 
+  test('a run nothing draws (claude -p) is not asked to offer the setup', async ($, on) => {
+    const kept = world(on, { commands: COMMANDS, onlyServers: [] })
+    await $.session.start(SESSION)
+    await kept.clock.advance(1)
+
+    expect((await $.prompt.compose({ ...COMPOSE, surfaces: [] })).sections.map(section => section.id)).toEqual(['engine'])
+  })
+
   test('/pelyar setup starts the setup skill', async ($, on) => {
     const kept = world(on, { commands: COMMANDS })
     await $.session.start(SESSION)
@@ -2014,10 +2060,12 @@ describe('demo', () => {
     const ui = await $.ui.mount({ plugin: 'pelyar', ...PANE })
 
     const text = textOf(await $.ui.render(PANE))
-    expect(text).toContain('PROJ-128')
-    expect(text).toContain('acme/api')
-    expect(text).toContain('Adriatic Morning')
-    expect(text).toContain('Daily stand-up')
+    // The demo folds as a fresh install does, whatever the person's own folds are.
+    expect(text).toContain('PROJ-128 · In Review')
+    expect(text).toContain('My PRs 3 open · 1 ready · 1 need attention')
+    expect(text).toContain('Tickets 3 assigned')
+    expect(text).toContain('Mail 2 unread')
+    expect(text).toContain('Spotify 1:23/3:34')
     expect(text).toContain('2 open · 1 working')
     expect(text).toContain('Answer Alex on the cache PR')
     expect(text).not.toContain('SECRET-99')
@@ -2029,6 +2077,14 @@ describe('demo', () => {
     await ui.press({ key: 'todo-input' }).catch(() => undefined)
     await ui.input({ key: 'todo-input', text: 'leak' })
     expect(kept.files[TODO_PATH]).toBe('- [ ] my private todo\n')
+
+    // The model chips switch nothing, and the ＋ search shows none of the person's commands.
+    await ui.press({ key: 'm-sonnet-btn' })
+    expect(kept.ran).toEqual([])
+    expect(kept.toasts).toContain('Demo: model and effort are not switched')
+    await ui.press({ key: 'pin-plus-btn' })
+    await ui.input({ key: 'pin-search', text: 'private', kind: 'change' })
+    expect(textOf(await $.ui.render(PANE))).toContain('nothing matches "private"')
     await ui.unmount()
   })
 })

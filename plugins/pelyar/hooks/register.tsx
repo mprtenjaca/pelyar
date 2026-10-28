@@ -27,13 +27,13 @@ import { COMMAND, EFFORTS, type Entry, GENERAL, MODELS, OWN_SETUP, OWN_WRAPUP, S
 import {
   approvalTargetsOf,
   approversOf,
+  countOf,
   glabArgv,
   GITLAB_MINE,
+  GITLAB_PAGE,
   GITLAB_REVIEWING,
   GITLAB_USER,
   gitlabApprovals,
-  gitlabApprovedBy,
-  idsOf,
   isGlabLoggedOut,
   parseMergeRequests,
   usernameOf,
@@ -49,6 +49,7 @@ import {
   myReviewOf,
   parseGithubPullRequests,
   parsePullRequests,
+  PR_PAGE,
   reviewChangesBetween,
   sortForReview,
   statusOf,
@@ -496,8 +497,39 @@ export async function changeTodos(
   throw new Error('the todo file kept changing, try again')
 }
 
-// A tracker can hang for minutes (the Atlassian server does); the panel gives up after this and says so.
-const TICKET_TIMEOUT_MS = 20_000
+// A source can hang for minutes (the Atlassian server does); the panel gives up on it after this and
+// says so, and the other sources still show. The call itself goes on, its answer dropped.
+const SOURCE_TIMEOUT_MS = 20_000
+// The branch's ticket asks a tracker or two in turn, each with its own time; this ends a lookup that
+// still hangs as a whole.
+const LOOKUP_TIMEOUT_MS = 45_000
+
+async function withTimeout<T>($: EngineInterface, work: Promise<T>, ms = SOURCE_TIMEOUT_MS): Promise<T> {
+  let timer: Timer | null = null
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = $.clock.after(ms, () => reject(new Error(`no answer in ${Math.round(ms / 1000)} s`)))
+  })
+  try {
+    return await Promise.race([work, timeout])
+  } finally {
+    // Cancelled as soon as the work answers, so nothing waits out the time afterwards.
+    ;(timer as Timer | null)?.cancel()
+  }
+}
+
+// `work` for each item, at most `limit` running at once; the results in the items' order.
+async function mapLimit<T, R>(items: readonly T[], limit: number, work: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = []
+  let next = 0
+  const lane = async () => {
+    while (next < items.length) {
+      const index = next++
+      results[index] = await work(items[index] as T)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, lane))
+  return results
+}
 
 // The Atlassian site: the Jira site setting, else the first site the Atlassian server can reach, asked
 // once per session (again after a failure).
@@ -582,24 +614,26 @@ async function lookupKey($: EngineInterface, settings: Settings, key: string): P
   let missing: unknown = new MissingTool(`no tracker for ${key}: connect Jira or Linear`)
   let failure: unknown = null
   let notFound: TicketFound | null = null
+  const ask = async (source: 'jira' | 'linear'): Promise<TicketFound> => {
+    if (source === 'jira') {
+      const site = await jiraSiteOf($, settings)
+      const result = await callMcp(
+        $,
+        JIRA_TOOL,
+        { cloudId: site, jql: `key = ${key}`, fields: ['summary', 'status'], maxResults: 1, responseContentFormat: 'markdown' },
+        USUAL_JIRA_SERVERS,
+      )
+      return { issue: issueOf(result), link: `https://${site}/browse/${key}`, label: 'Jira' }
+    }
+    const issue = issueFeed.parseLinearIssue(await callMcp($, issueFeed.LINEAR_GET_TOOL, { id: key }, USUAL_LINEAR_SERVERS))
+    return { issue, link: '', label: 'Linear' }
+  }
   for (const source of settings.ticketSources.filter(item => item === 'jira' || item === 'linear')) {
     try {
-      if (source === 'jira') {
-        const site = await jiraSiteOf($, settings)
-        const result = await callMcp(
-          $,
-          JIRA_TOOL,
-          { cloudId: site, jql: `key = ${key}`, fields: ['summary', 'status'], maxResults: 1, responseContentFormat: 'markdown' },
-          USUAL_JIRA_SERVERS,
-        )
-        const found: TicketFound = { issue: issueOf(result), link: `https://${site}/browse/${key}`, label: 'Jira' }
-        if (found.issue !== null) return found
-        notFound ??= found
-      } else {
-        const issue = issueFeed.parseLinearIssue(await callMcp($, issueFeed.LINEAR_GET_TOOL, { id: key }, USUAL_LINEAR_SERVERS))
-        if (issue !== null) return { issue, link: '', label: 'Linear' }
-        notFound ??= { issue: null, link: '', label: 'Linear' }
-      }
+      // Each tracker on its own time: one that hangs does not keep the next one from being asked.
+      const found = await withTimeout($, ask(source))
+      if (found.issue !== null) return found
+      notFound ??= found
     } catch (error) {
       if (error instanceof MissingTool) missing = error
       else failure ??= error
@@ -657,19 +691,12 @@ async function loadTicket($: EngineInterface, settings: Settings, force: boolean
   }
   await update($, ticket, () => base)
   if (key === null) return
-  // The timer is cancelled as soon as the tracker answers, so nothing waits out the 20 s afterwards.
-  let timer: { cancel: () => void } | null = null
-  const timeout = new Promise<never>((_resolve, reject) => {
-    timer = $.clock.after(TICKET_TIMEOUT_MS, () => reject(new Error('no answer in 20 s')))
-  })
   try {
-    const lookup = ticketKey !== null ? lookupKey($, settings, ticketKey) : lookupNumber($, forge ?? 'github', number ?? 0)
-    const { issue, link, label } = await Promise.race([lookup, timeout])
+    const lookup = ticketKey !== null ? lookupKey($, settings, ticketKey) : withTimeout($, lookupNumber($, forge ?? 'github', number ?? 0))
+    const { issue, link, label } = await withTimeout($, lookup, LOOKUP_TIMEOUT_MS)
     await update($, ticket, () => (issue === null ? { ...base, url: link, error: `not found in ${label}` } : { ...base, ...issue, url: issue.url || link }))
   } catch (error) {
     await update($, ticket, () => ({ ...base, error: ticketErrorOf(error) }))
-  } finally {
-    ;(timer as { cancel: () => void } | null)?.cancel()
   }
 }
 
@@ -992,7 +1019,7 @@ async function noteRun($: EngineInterface, command: string): Promise<void> {
 // ---- Folds: which sections are closed, remembered across sessions.
 
 async function loadFolded($: EngineInterface): Promise<void> {
-  const stored = await $.store.get(FOLDED_STORE_KEY)
+  const stored = isDemo ? null : await $.store.get(FOLDED_STORE_KEY)
   const list: string[] = Array.isArray(stored) ? stored.filter(isFold) : [...FOLDED_BY_DEFAULT]
   await update($, folded, () => list)
 }
@@ -1008,7 +1035,8 @@ async function loadPinned($: EngineInterface): Promise<void> {
 async function setPinned($: EngineInterface, change: (current: string[]) => string[]): Promise<void> {
   const next = change(await read($, pinned))
   await update($, pinned, () => next)
-  await $.store.set(PINNED_STORE_KEY, next)
+  // The demo keeps its pins in the session alone: the stored list is the person's own.
+  if (!isDemo) await $.store.set(PINNED_STORE_KEY, next)
 }
 
 // Returns whether the section is open after the press.
@@ -1016,7 +1044,7 @@ async function foldSection($: EngineInterface, key: Fold): Promise<boolean> {
   const current = await read($, folded)
   const next = current.includes(key) ? current.filter(item => item !== key) : [...current, key]
   await update($, folded, () => next)
-  await $.store.set(FOLDED_STORE_KEY, next)
+  if (!isDemo) await $.store.set(FOLDED_STORE_KEY, next)
   return !next.includes(key)
 }
 
@@ -1035,15 +1063,16 @@ async function notify($: EngineInterface, texts: readonly string[]): Promise<voi
 
 // ---- Pomodoro, in the plugin store (a running round survives /exit, every window shows the same).
 
+// The demo's pomodoro lives in this session alone: the stored one runs in every window of the person.
 async function loadPomodoro($: EngineInterface): Promise<Pomodoro> {
-  return pomodoroClock.pomodoroFrom(await $.store.get(POMODORO_STORE_KEY))
+  return isDemo ? read($, pomodoro) : pomodoroClock.pomodoroFrom(await $.store.get(POMODORO_STORE_KEY))
 }
 
 async function tickPomodoro($: EngineInterface, settings: Settings): Promise<void> {
   const time = await $.clock.now()
   const stored = await loadPomodoro($)
   const step = pomodoroClock.advance(stored, time, settings.pomodoroLengths)
-  if (step.pomodoro !== stored) await $.store.set(POMODORO_STORE_KEY, step.pomodoro)
+  if (step.pomodoro !== stored && !isDemo) await $.store.set(POMODORO_STORE_KEY, step.pomodoro)
   if (step.message !== null) {
     $.ui.toast(step.message, { timeoutMs: 15_000 })
     // Also a macOS notification (silent by itself); a failure (not a Mac, notifications off) costs nothing.
@@ -1064,7 +1093,7 @@ async function tickPomodoro($: EngineInterface, settings: Settings): Promise<voi
 async function changePomodoro($: EngineInterface, change: (current: Pomodoro, time: number) => Pomodoro): Promise<Pomodoro> {
   const time = await $.clock.now()
   const next = change(await loadPomodoro($), time)
-  await $.store.set(POMODORO_STORE_KEY, next)
+  if (!isDemo) await $.store.set(POMODORO_STORE_KEY, next)
   await update($, pomodoro, () => next)
   await update($, nowAtom, () => time)
   return next
@@ -1112,7 +1141,9 @@ async function serversFor($: EngineInterface, tool: string, usual: readonly stri
     .catch(() => [])
   const listed = (await mcpTools).filter(item => item.name.endsWith(`__${tool}`)).map(item => item.serverName)
   const last = answeredBy.get(tool)
-  return { servers: [...new Set([...(last === undefined ? [] : [last]), ...listed, ...usual])], listed }
+  // The usual names only when no server lists the tool: trying them after a listed server failed
+  // would only replace its error with "not connected".
+  return { servers: [...new Set([...(last === undefined ? [] : [last]), ...listed, ...(listed.length === 0 ? usual : [])])], listed }
 }
 
 async function callMcp($: EngineInterface, tool: string, args: Record<string, unknown>, usual: readonly string[]): Promise<McpResult> {
@@ -1142,7 +1173,9 @@ async function callMcp($: EngineInterface, tool: string, args: Record<string, un
 // no Bitbucket server connected) is left out without a word while the source setting is auto; one
 // that is set up and fails is said, and the others still show.
 
-type SourcePrs = { source: PrSource; mine: PullRequest[]; reviewing: PullRequest[]; me: string | null }
+// `isFull`: a list came back as long as the most it asks for, so it may have left some out, and its
+// changes are not said (a PR pushed off the end is not merged).
+type SourcePrs = { source: PrSource; mine: PullRequest[]; reviewing: PullRequest[]; me: string | null; isFull: boolean }
 type SourceFailure = { source: PrSource | TicketSource; error: unknown }
 class NotSetUp extends Error {}
 
@@ -1173,41 +1206,60 @@ function failureLineOf(failure: SourceFailure, delayMs: number): string {
 async function fetchBitbucket($: EngineInterface, previousMe: string | null): Promise<SourcePrs> {
   const [mine, reviewing] = await Promise.all(
     (['AUTHOR', 'REVIEWER'] as const).map(async role =>
-      parsePullRequests(await callMcp($, BITBUCKET_TOOL, { role, state: 'OPEN', limit: 25 }, USUAL_BITBUCKET_SERVERS)),
+      parsePullRequests(await callMcp($, BITBUCKET_TOOL, { role, state: 'OPEN', limit: PR_PAGE }, USUAL_BITBUCKET_SERVERS)),
     ),
   )
-  return { source: 'bitbucket', mine: mine ?? [], reviewing: reviewing ?? [], me: await meOf($, mine ?? [], previousMe) }
+  const isFull = (mine ?? []).length >= PR_PAGE || (reviewing ?? []).length >= PR_PAGE
+  return { source: 'bitbucket', mine: mine ?? [], reviewing: reviewing ?? [], me: await meOf($, mine ?? [], previousMe), isFull }
 }
 
 async function fetchGithub($: EngineInterface, settings: Settings): Promise<SourcePrs> {
   const found = parseGithubPullRequests(await runForgeCli($, githubArgv(settings.githubHost), ghLoggedOut))
-  return { source: 'github', ...found }
+  return { source: 'github', ...found, isFull: found.mine.length >= PR_PAGE || found.reviewing.length >= PR_PAGE }
 }
 
-async function fetchGitlab($: EngineInterface, settings: Settings): Promise<SourcePrs> {
+// Approvals are asked one merge request at a time, this many at once.
+const GITLAB_APPROVALS_AT_ONCE = 4
+
+async function fetchGitlab($: EngineInterface, settings: Settings, previous: readonly PullRequest[]): Promise<SourcePrs> {
   const run = (endpoint: string) => runForgeCli($, glabArgv(settings.gitlabHost, endpoint), glabLoggedOut)
   const me = usernameOf(await run(GITLAB_USER))
   const [mine, reviewing] = await Promise.all([run(GITLAB_MINE), run(GITLAB_REVIEWING)])
-  // Who approved mine, one call each. One that fails leaves that merge request without approvals.
-  const mineApprovals = new Map(
-    await Promise.all(
-      approvalTargetsOf(mine).map(async target => [target.id, await run(gitlabApprovals(target.projectId, target.iid)).then(approversOf, () => new Set<string>())] as const),
-    ),
-  )
-  // Which of the others I approved: a filter an older GitLab may lack, so a failure leaves them unmarked.
-  const approvedByMe = me === null ? new Set<number>() : await run(gitlabApprovedBy(me)).then(idsOf, () => new Set<number>())
-  const reviewingApprovals = new Map([...approvedByMe].map(id => [id, new Set([me ?? ''])] as const))
-  return { source: 'gitlab', me, mine: parseMergeRequests(mine, mineApprovals), reviewing: parseMergeRequests(reviewing, reviewingApprovals) }
+  // Who approved each, mine and the ones I review, each merge request once.
+  const targets = [...new Map([...approvalTargetsOf(mine), ...approvalTargetsOf(reviewing)].map(target => [target.id, target])).values()]
+  const asked = await mapLimit(targets, GITLAB_APPROVALS_AT_ONCE, async target => ({
+    target,
+    approvers: await run(gitlabApprovals(target.projectId, target.iid)).then(approversOf, () => null),
+  }))
+  const approvals = new Map(asked.flatMap(({ target, approvers }) => (approvers === null ? [] : [[target.id, approvers] as const])))
+  // One that could not be read keeps what the last read found, so its status does not drop to
+  // "waiting" and come back as newly approved.
+  const failed = new Set(asked.filter(item => item.approvers === null).map(item => item.target.key))
+  const kept = (pr: PullRequest): PullRequest => {
+    const before = failed.has(pr.key) ? previous.find(item => item.key === pr.key) : undefined
+    return before === undefined ? pr : { ...pr, reviews: before.reviews, approvals: before.approvals }
+  }
+  return {
+    source: 'gitlab',
+    me,
+    mine: parseMergeRequests(mine, approvals).map(kept),
+    reviewing: parseMergeRequests(reviewing, approvals).map(kept),
+    isFull: countOf(mine) >= GITLAB_PAGE || countOf(reviewing) >= GITLAB_PAGE,
+  }
 }
 
-async function fetchPrs($: EngineInterface, settings: Settings, previous: Me): Promise<{ found: SourcePrs[]; failures: SourceFailure[] }> {
+async function fetchPrs($: EngineInterface, settings: Settings, previous: PullRequestFeed | null): Promise<{ found: SourcePrs[]; failures: SourceFailure[] }> {
   const isAuto = settings.prSources.length > 1
+  const fetchFrom = (source: PrSource) => {
+    if (source === 'github') return fetchGithub($, settings)
+    if (source === 'gitlab') return fetchGitlab($, settings, [...(previous?.mine ?? []), ...(previous?.reviewing ?? [])])
+    return fetchBitbucket($, previous?.me.bitbucket ?? null)
+  }
   const tries = await Promise.all(
     settings.prSources.map(async (source): Promise<SourcePrs | SourceFailure | null> => {
       try {
-        if (source === 'github') return await fetchGithub($, settings)
-        if (source === 'gitlab') return await fetchGitlab($, settings)
-        return await fetchBitbucket($, previous.bitbucket ?? null)
+        // GitLab asks once for each merge request's approvals, so it gets more time.
+        return await withTimeout($, fetchFrom(source), source === 'gitlab' ? 3 * SOURCE_TIMEOUT_MS : SOURCE_TIMEOUT_MS)
       } catch (error) {
         if (isAuto && (error instanceof NotSetUp || error instanceof MissingTool)) return null
         return { source, error }
@@ -1242,13 +1294,14 @@ async function loadPrs($: EngineInterface, settings: Settings, pollers: Pollers)
   }
   try {
     const previous = await read($, prs)
-    const { found, failures } = await fetchPrs($, settings, previous?.me ?? {})
+    const { found, failures } = await fetchPrs($, settings, previous)
     // A source that failed this time keeps nothing: its rows would be stale, and the line says why.
     if (found.length > 0) {
       const mine = found.flatMap(item => item.mine)
       const reviewing = found.flatMap(item => item.reviewing)
       const me: Me = Object.fromEntries(found.map(item => [item.source, item.me]))
-      const sources = found.map(item => item.source)
+      // A full list is not compared either: a PR pushed off its end would read as merged.
+      const sources = found.filter(item => !item.isFull).map(item => item.source)
       if (previous !== null) {
         // Only the sources that answered both times are compared: one that failed, or connected only
         // now, would read as every one of its PRs merged, or newly requested.
@@ -1284,9 +1337,12 @@ const comparedSources =
 
 // ---- Tickets, from each source on its own, the same way as the pull requests.
 
+// The most tickets each source is asked for (issues.ts asks GitHub, GitLab and Linear for as many).
+const ISSUE_PAGE = 50
+
 async function fetchIssuesFrom($: EngineInterface, settings: Settings, source: TicketSource): Promise<Issue[]> {
   if (source === 'jira') {
-    const args = { cloudId: await jiraSiteOf($, settings), jql: settings.jiraQuery, fields: ['summary', 'status'], maxResults: 50, responseContentFormat: 'markdown' }
+    const args = { cloudId: await jiraSiteOf($, settings), jql: settings.jiraQuery, fields: ['summary', 'status'], maxResults: ISSUE_PAGE, responseContentFormat: 'markdown' }
     return jiraFeed.parseJiraIssues(await callMcp($, JIRA_TOOL, args, USUAL_JIRA_SERVERS))
   }
   if (source === 'linear') return issueFeed.parseLinearIssues(await callMcp($, issueFeed.LINEAR_LIST_TOOL, issueFeed.LINEAR_LIST_ARGS, USUAL_LINEAR_SERVERS))
@@ -1309,7 +1365,7 @@ async function loadIssues($: EngineInterface, settings: Settings, pollers: Polle
     const tries = await Promise.all(
       settings.ticketSources.map(async (source): Promise<SourceIssues | SourceFailure | null> => {
         try {
-          return { source, issues: await fetchIssuesFrom($, settings, source) }
+          return { source, issues: await withTimeout($, fetchIssuesFrom($, settings, source)) }
         } catch (error) {
           if (isAuto && (error instanceof NotSetUp || error instanceof MissingTool)) return null
           return { source, error }
@@ -1321,7 +1377,9 @@ async function loadIssues($: EngineInterface, settings: Settings, pollers: Polle
     if (found.length === 0 && failures.length === 0) throw new MissingTool('no ticket source: connect Jira or Linear, or log in with gh or glab')
     if (found.length > 0) {
       const next = found.flatMap(item => item.issues)
-      const sources = found.map(item => item.source)
+      // A list as long as the most it asks for is not compared: a ticket that moves into it from beyond
+      // its end is not newly assigned.
+      const sources = found.filter(item => item.issues.length < ISSUE_PAGE).map(item => item.source)
       const previous = await read($, ticketList)
       if (previous !== null) {
         // As with the PRs: a source that comes back is not every one of its tickets newly assigned.
@@ -1430,7 +1488,9 @@ async function controlSpotify($: EngineInterface, settings: Settings, pollers: P
 const refreshSessions = ($: EngineInterface, pollers: Pollers) => refreshWith(pollers.sessions, () => loadSessions($, pollers))
 
 async function readSessionFiles($: EngineInterface): Promise<ClaudeSession[]> {
-  const configDir = (await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${(await homeOf($)) ?? '~'}/.claude`
+  const home = await homeOf($)
+  const configDir = (await $.env.get('CLAUDE_CONFIG_DIR')) ?? (home === null ? null : `${home}/.claude`)
+  if (configDir === null) return []
   const dir = `${configDir}/sessions`
   if (!(await $.fs.exists(dir))) return []
   const names = (await $.fs.list(dir)).filter(entry => entry.kind === 'file' && claudeSessions.SESSION_FILE.test(entry.name))
@@ -1682,7 +1742,8 @@ export const register: Register = (on, options) => {
   // Right after an install with nothing to read from, Claude offers the setup, once.
   on('prompt.compose', async ($, e, next) => {
     const result = await next(e)
-    if (isDemo || (await read($, setupState)) !== null || !(await isNothingConnected($, settings))) return result
+    // Not for a run nothing draws (`claude -p`, a script): its output is not the place for an offer.
+    if (isDemo || e.surfaces.length === 0 || (await read($, setupState)) !== null || !(await isNothingConnected($, settings))) return result
     isOfferingSetup = true
     return { sections: [...result.sections, { id: 'pelyar:setup', text: SETUP_SECTION, scope: 'session' as const }] }
   }).catch(($, e, next) => next(e))
@@ -1840,8 +1901,14 @@ export const register: Register = (on, options) => {
       const row = effortRowOf(await $.config.list())
       return (await read($, chosen)).effort ?? (await read($, lastStep))?.effort ?? (row === undefined ? null : String(row.value))
     }
+    // The demo switches nothing: /model and /effort would save the pick as the person's default.
+    const isDemoPick = () => {
+      if (isDemo) $.ui.toast('Demo: model and effort are not switched', { timeoutMs: 2000 })
+      return isDemo
+    }
     const pickModel = (model: (typeof MODELS)[number]) =>
       once($, `model:${model.arg}`, async () => {
+        if (isDemoPick()) return
         if ((await modelNow()).startsWith(model.id)) {
           $.ui.toast(`${model.label} is already the active model`, { timeoutMs: 2000 })
           return
@@ -1863,6 +1930,7 @@ export const register: Register = (on, options) => {
       })
     const pickEffort = (effort: (typeof EFFORTS)[number]) =>
       once($, `effort:${effort.level}`, async () => {
+        if (isDemoPick()) return
         if ((await effortNow()) === effort.level) {
           $.ui.toast(`Effort is already ${effort.label}`, { timeoutMs: 2000 })
           return
@@ -2004,8 +2072,9 @@ export const register: Register = (on, options) => {
     const typed = (await read($, pinQuery)).trim()
     const query = typed.toLowerCase()
     const onPanel = new Set([...pinnedNames, ...general.map(entry => entry.command), ...session.map(item => item.command), ...teamEntries.map(entry => entry.command)])
+    // Not in the demo: the matches would show the person's own commands.
     const pinMatches =
-      query === ''
+      query === '' || isDemo
         ? []
         : [
             ...commands.filter(command => !onPanel.has(command.name) && command.name.toLowerCase().includes(query)),
