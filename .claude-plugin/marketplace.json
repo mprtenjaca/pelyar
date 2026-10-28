@@ -8,7 +8,7 @@
     {
       "name": "pelyar",
       "source": "./plugins/pelyar",
-      "description": "A dashboard and control panel docked beside the transcript: model and effort, the context meter, a pomodoro, music, your pull requests on GitHub and Bitbucket, your Jira tickets, the other Claude sessions, your todo list and the session commands."
+      "description": "A dashboard and control panel docked beside the transcript: model and effort, the context meter, a pomodoro, Spotify or Apple Music, your pull requests on GitHub, GitLab and Bitbucket, your tickets in Jira, Linear, GitHub and GitLab, the other Claude sessions, your todo list and the session commands."
     }
   ]
 }
