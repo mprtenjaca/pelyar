@@ -4,7 +4,9 @@
 [Claude Code](https://claude.com/claude-code), docked beside the transcript.
 
 <p align="center">
-  <img src="docs/panel.png" alt="The Pelyar panel: context, Catchup, Wrapup and Clear, pomodoro, music, mail, pull requests, tickets, Claude sessions, model and effort, and a todo list" width="440">
+  <img src="docs/demo.gif" alt="The Pelyar panel opening from the footer button, its parts unfolding, and a todo being added" width="360">
+  &nbsp;&nbsp;
+  <img src="docs/panel.png" alt="The Pelyar panel: context, Catchup, Wrapup and Clear, pomodoro, music, mail, pull requests, tickets, Claude sessions, model and effort, and a todo list" width="360">
   <br>
   <sub>The panel with the made-up data of <code>PELYAR_DEMO=1</code>.</sub>
 </p>
