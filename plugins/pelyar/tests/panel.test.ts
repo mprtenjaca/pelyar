@@ -73,6 +73,8 @@ type WorldOptions = {
   stored?: Record<string, unknown>
   // More environment variables than HOME and USER.
   env?: Record<string, string>
+  // The effort setting's value in /config; null: the session has none.
+  effort?: string | null
 }
 const NOW = 1_800_000_000_000
 const DEFAULT_COMMANDS = ['model', 'effort', 'clear', 'catchup', 'wrapup', 'code-review', 'security-review'] as const
@@ -116,6 +118,7 @@ function world(
     folds = ['todo'],
     stored = {},
     env = {},
+    effort = null,
   }: WorldOptions = {},
 ) {
   const git = { fails: gitFails, team }
@@ -240,7 +243,12 @@ function world(
   on('skill.prompt', ($, e) => ({ text: e.text }))
   on('prompt.compose', () => ({ sections: [{ id: 'engine', text: 'You are Claude.', scope: 'shared' as const }] }))
   on('config.list', () => ({
-    value: [{ key: 'theme', label: 'Theme', kind: 'choice' as const, value: theme, provider: { plugin: 'engine', tier: 'core' as const }, isLocked: false }],
+    value: [
+      { key: 'theme', label: 'Theme', kind: 'choice' as const, value: theme, provider: { plugin: 'engine', tier: 'core' as const }, isLocked: false },
+      // A switch with "effort" in its name, ahead of the effort itself: not the effort.
+      { key: 'showEffortHint', label: 'Show effort hint', kind: 'boolean' as const, value: true, provider: { plugin: 'engine', tier: 'core' as const }, isLocked: false },
+      ...(effort === null ? [] : [{ key: 'effortLevel', label: 'Effort', kind: 'choice' as const, value: effort, provider: { plugin: 'engine', tier: 'core' as const }, isLocked: false }]),
+    ],
   }))
   on('session.model', () => ({ value: model }))
   on('session.turns', () => ({ value: turns }))
@@ -1978,6 +1986,17 @@ describe('setup', () => {
     await kept.clock.advance(1)
     expect(kept.toasts).toEqual([])
     expect(kept.ran).toContain('pelyar:setup')
+  })
+})
+
+describe('effort', () => {
+  test('the effort comes from the effort setting, not from another row with effort in its name', async ($, on) => {
+    world(on, { effort: 'high' })
+    await $.session.start(SESSION)
+
+    const text = textOf(await $.ui.render(PANE))
+    expect(text).toContain('Opus 5.5 · High')
+    expect(text).not.toContain('True')
   })
 })
 

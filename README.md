@@ -3,6 +3,12 @@
 **A harbour pilot for your Claude Code session.** A dashboard and control panel for
 [Claude Code](https://claude.com/claude-code), docked beside the transcript.
 
+<p align="center">
+  <img src="docs/panel.png" alt="The Pelyar panel: context, Catchup, Wrapup and Clear, pomodoro, music, mail, pull requests, tickets, Claude sessions, model and effort, and a todo list" width="440">
+  <br>
+  <sub>The panel with the made-up data of <code>PELYAR_DEMO=1</code>.</sub>
+</p>
+
 The name comes from the Croatian *peljar* (said "PEL-yar"): the harbour pilot who comes aboard and guides
 a ship in, and the Adriatic pilot book sailors keep beside the wheel. The *y* spells it the way it sounds.
 

@@ -207,7 +207,10 @@ const SPOTIFY_ICONS = { prev: ' ⏮\uFE0E ', pause: ' ⏸\uFE0E ', play: ' ⏵\u
 const isPlayerIcon = (text: string) => text.includes('\uFE0E')
 
 const modelLabelOf = (id: string) => MODELS.find(model => id.startsWith(model.id))?.label ?? id
-const effortRowOf = (rows: readonly ConfigRow[]) => rows.find(row => /effort/i.test(row.key) || /effort/i.test(row.label))
+// The effort setting: a row named for effort whose value is an effort level. Another row with "effort"
+// in its name (a switch, true or false) would show "True" as the effort.
+const effortRowOf = (rows: readonly ConfigRow[]) =>
+  rows.find(row => (/effort/i.test(row.key) || /effort/i.test(row.label)) && EFFORTS.some(effort => effort.level === String(row.value)))
 // The Panel title setting, else the mod's own name.
 const titleOf = (configured: string | null) => configured ?? 'Pelyar'
 const spaced = (text: string) => text.toUpperCase().split('').join(' ')
@@ -1386,11 +1389,11 @@ const refreshSpotify = ($: EngineInterface, settings: Settings, pollers: Pollers
 
 async function loadSpotify($: EngineInterface, settings: Settings): Promise<void> {
   if (isDemo) {
-    // Set once, so the track's position runs on instead of starting over at each read.
-    if ((await read($, spotify)) === null) {
-      const now = await $.clock.now()
-      await update($, spotify, () => demo.demoPlayer(now))
-    }
+    // Set once, so the track's position runs on instead of starting over at each read; at its end the
+    // track starts again.
+    const now = await $.clock.now()
+    const shown = await read($, spotify)
+    if (shown === null || spotifyPlayer.positionAt(shown, now) >= shown.durationMs) await update($, spotify, () => demo.demoPlayer(now))
     return
   }
   try {
