@@ -1,0 +1,14 @@
+{
+  "name": "pelyar",
+  "description": "Pelyar: a harbour pilot for your Claude Code session.",
+  "owner": {
+    "name": "Marko Prtenjaca"
+  },
+  "plugins": [
+    {
+      "name": "pelyar",
+      "source": "./plugins/pelyar",
+      "description": "A dashboard and control panel docked beside the transcript: model and effort, the context meter, a pomodoro, music, your pull requests on GitHub and Bitbucket, your Jira tickets, the other Claude sessions, your todo list and the session commands."
+    }
+  ]
+}

@@ -1,0 +1,234 @@
+{
+  "name": "pelyar",
+  "version": "0.1.0",
+  "description": "A dashboard and control panel docked beside the transcript: model and effort, the context meter, a pomodoro, Spotify or Apple Music, your pull requests on GitHub, GitLab and Bitbucket, your tickets in Jira, Linear, GitHub and GitLab, the other Claude sessions, your todo list and the session commands.",
+  "author": {
+    "name": "Marko Prtenjaca"
+  },
+  "license": "MIT",
+  "keywords": [
+    "dashboard",
+    "panel",
+    "pull-requests",
+    "github",
+    "gitlab",
+    "bitbucket",
+    "jira",
+    "linear",
+    "pomodoro"
+  ],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "title": {
+      "type": "string",
+      "title": "Panel title",
+      "description": "The panel's title and footer button. Empty: \"Pelyar\".",
+      "default": ""
+    },
+    "background": {
+      "type": "string",
+      "title": "Panel background",
+      "description": "A colour for the whole panel: a shade off a dark background, or off white with a light theme. none: the default look.",
+      "default": "none",
+      "options": [
+        "none",
+        "slate",
+        "graphite",
+        "midnight",
+        "espresso",
+        "moss"
+      ]
+    },
+    "showTicket": {
+      "type": "boolean",
+      "title": "Ticket row",
+      "description": "Show the current branch and the ticket its name carries (PROJ-12 in Jira or Linear, or 123-fix-login on GitHub or GitLab), under the header.",
+      "default": true
+    },
+    "showContext": {
+      "type": "boolean",
+      "title": "Context meter",
+      "description": "The context fill, with a nudge at 70% and 85% (toasted only when no prompt band mod toasts the same).",
+      "default": true
+    },
+    "showPomodoro": {
+      "type": "boolean",
+      "title": "Pomodoro",
+      "description": "A 25/5 pomodoro, kept in the plugin store so a round survives /exit.",
+      "default": true
+    },
+    "pomodoroLength": {
+      "type": "string",
+      "title": "Pomodoro length",
+      "description": "Focus and break in minutes; the long break after every fourth round is 15 (25/5) or 30 minutes.",
+      "default": "25/5",
+      "options": [
+        "25/5",
+        "45/15",
+        "50/10"
+      ]
+    },
+    "pomodoroSound": {
+      "type": "boolean",
+      "title": "Pomodoro sound",
+      "description": "A sound and the terminal bell when a round ends. Off: only the toast and a silent macOS notification.",
+      "default": true
+    },
+    "showSpotify": {
+      "type": "boolean",
+      "title": "Music player",
+      "description": "The track playing in Spotify or Apple Music under Now, with prev/play/pause/next, read over osascript while the panel is open.",
+      "default": true
+    },
+    "musicPlayer": {
+      "type": "string",
+      "title": "Music app",
+      "description": "Which app the music player reads. auto: Spotify and Apple Music, the one playing wins.",
+      "default": "auto",
+      "options": [
+        "auto",
+        "spotify",
+        "music"
+      ]
+    },
+    "showPrs": {
+      "type": "boolean",
+      "title": "My PRs",
+      "description": "Your open pull requests, every five minutes, from the PR sources.",
+      "default": true
+    },
+    "showReviewPrs": {
+      "type": "boolean",
+      "title": "Other PRs",
+      "description": "The pull requests you review, from the same read as My PRs. With both off no source is asked.",
+      "default": true
+    },
+    "prSource": {
+      "type": "string",
+      "title": "PR sources",
+      "description": "auto: GitHub through gh, GitLab through glab and Bitbucket Data Center through an MCP server, whichever this machine has. Or only the one named.",
+      "default": "auto",
+      "options": [
+        "auto",
+        "github",
+        "gitlab",
+        "bitbucket"
+      ]
+    },
+    "githubHost": {
+      "type": "string",
+      "title": "GitHub host",
+      "description": "Empty for github.com; a GitHub Enterprise host (github.example.com) otherwise. gh must be logged in to it.",
+      "default": ""
+    },
+    "gitlabHost": {
+      "type": "string",
+      "title": "GitLab host",
+      "description": "Empty: the host glab is logged in to (gitlab.com by default); a self-managed host (gitlab.example.com) otherwise.",
+      "default": ""
+    },
+    "showTickets": {
+      "type": "boolean",
+      "title": "Ticket list",
+      "description": "Your open tickets, every five minutes, from the ticket sources.",
+      "default": true
+    },
+    "ticketSource": {
+      "type": "string",
+      "title": "Ticket sources",
+      "description": "auto: Jira and Linear through their MCP servers, GitHub and GitLab issues through gh and glab, whichever this machine has. Or only the one named.",
+      "default": "auto",
+      "options": [
+        "auto",
+        "jira",
+        "linear",
+        "github",
+        "gitlab"
+      ]
+    },
+    "jiraSite": {
+      "type": "string",
+      "title": "Jira site",
+      "description": "Your Atlassian site (example.atlassian.net). Empty: the first site the Atlassian server can reach.",
+      "default": ""
+    },
+    "jiraQuery": {
+      "type": "string",
+      "title": "Jira query",
+      "description": "The JQL of the Jira list. Empty: your open tickets, the latest first.",
+      "default": ""
+    },
+    "showMail": {
+      "type": "boolean",
+      "title": "Mail and calendar",
+      "description": "Unread mail and the next meetings, from an MCP server that has list_recent_emails and list_calendar_events (README, Mail). Off by default.",
+      "default": false
+    },
+    "showSessions": {
+      "type": "boolean",
+      "title": "Claude sessions",
+      "description": "The other Claude Code windows on this machine, while any runs; read while the panel is open.",
+      "default": true
+    },
+    "showSessionCommands": {
+      "type": "boolean",
+      "title": "Catchup, Wrapup, Clear",
+      "description": "The three session buttons under the context meter.",
+      "default": true
+    },
+    "catchupCommand": {
+      "type": "string",
+      "title": "Catchup command",
+      "description": "The command the Catchup button runs. Empty: Pelyar's own /pelyar:catchup. Or any command of the session, by its name (workflow:catchup, or catchup).",
+      "default": ""
+    },
+    "wrapupCommand": {
+      "type": "string",
+      "title": "Wrapup command",
+      "description": "The command the Wrapup button and the context nudge use. Empty: Pelyar's own /pelyar:wrapup. Or any command of the session, by its name.",
+      "default": ""
+    },
+    "wrapupCommit": {
+      "type": "boolean",
+      "title": "Wrapup commits",
+      "description": "Pelyar's own wrapup commits CLAUDE.md and new records when CLAUDE.md is tracked in git. Off: it only writes them.",
+      "default": true
+    },
+    "showModel": {
+      "type": "boolean",
+      "title": "Model and effort",
+      "description": "The Model section with its chips and the 1-9 hotkeys.",
+      "default": true
+    },
+    "showTodos": {
+      "type": "boolean",
+      "title": "Todo list",
+      "description": "The todo list under Work; off, the todo file is not read.",
+      "default": true
+    },
+    "showCommands": {
+      "type": "boolean",
+      "title": "Work commands",
+      "description": "Review changes, Review a PR, Security review and your pinned commands under Work. With the todo list also off, Work is left out.",
+      "default": true
+    },
+    "showTeam": {
+      "type": "boolean",
+      "title": "Team skills",
+      "description": "The Team section with your team plugin's skills (<prefix><team>, the team from git config user.team). Off by default; off, the team is not read.",
+      "default": false
+    },
+    "teamPrefix": {
+      "type": "string",
+      "title": "Team plugin prefix",
+      "description": "Team plugins are named <prefix><team>: with team- and user.team \"Platform Tools\", the plugin team-platform-tools. Empty: team-.",
+      "default": ""
+    },
+    "teamMarketplace": {
+      "type": "string",
+      "title": "Team marketplace",
+      "description": "The marketplace the install hint names (/plugin install <plugin>@<marketplace>). An installed team plugin is found from any marketplace.",
+      "default": ""
+    }
+  }
+}
