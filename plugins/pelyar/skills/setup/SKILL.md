@@ -40,12 +40,16 @@ Also read:
 - **The allow rules**, under `permissions.allow` in `~/.claude/settings.json`, and in the project's
   `.claude/settings.json` and `.claude/settings.local.json` if they exist.
 
+Settings files often hold secrets as well (`env` values, `apiKeyHelper`). Never read one whole: read only
+these two keys, for example
+`jq '{options: .pluginConfigs["<install key>"].options, allow: .permissions.allow}' ~/.claude/settings.json`.
+
 ## 2. Ask what the person wants
 
 First show a short table: each part, and whether its source is there.
 
 Pomodoro, the context meter, Catchup/Wrapup/Clear, Model and effort, the todo list and the Claude
-sessions list need no setup. Say that they are on.
+sessions list need no setup. Say that they work, and which of them the settings you read switch off.
 
 Then ask with AskUserQuestion, multiSelect, which of these the person wants: **Pull requests**,
 **Tickets**, **Mail and calendar**, **Music player**.
@@ -58,17 +62,21 @@ what step 1 already answered.
 
 Only the sources the person wants and does not have yet.
 
-Never ask for a token or a password, and never write one into a file or a command yourself. A login
-runs in the person's own terminal: give them the command to type with `!` in front (`! gh auth login`),
-so it runs in this session and they type the secret themselves. Ask before you install anything.
+Never ask for a token or a password, and never write one into a file or a command yourself. Every
+login, and every command that carries a secret, runs **in a separate terminal window**, which the person
+opens themselves. Never suggest the `!` prefix for these: a `!` command and its output become part of
+this conversation, a token typed into it included, and the login prompts need a real terminal anyway.
+Ask before you install anything.
 
 - **GitHub.**
   1. Install: `brew install gh` on macOS, else https://cli.github.com.
-  2. Log in: `! gh auth login`. For GitHub Enterprise: `! gh auth login --hostname <host>`.
+  2. Log in, in a separate terminal: `gh auth login`. For GitHub Enterprise: `gh auth login --hostname <host>`.
+     When it asks "Authenticate Git with your GitHub credentials?", No keeps the person's git
+     configuration as it is; Pelyar only needs `gh` itself.
   3. Check: `gh auth status`.
 - **GitLab.**
   1. Install: `brew install glab`, else https://gitlab.com/gitlab-org/cli.
-  2. Log in: `! glab auth login`. For a self-managed GitLab: `--hostname <host>`.
+  2. Log in, in a separate terminal: `glab auth login`. For a self-managed GitLab: `--hostname <host>`.
   3. Check: `glab auth status`.
 - **Jira.** Atlassian's connector:
   1. In claude.ai: Settings → Connectors → Atlassian.
@@ -78,11 +86,12 @@ so it runs in this session and they type the secret themselves. Ask before you i
 - **Linear.** Linear's MCP server: the Linear connector in claude.ai (Settings → Connectors), or the
   server https://linear.app/docs/mcp describes. Then `/mcp` to log in.
 - **Bitbucket Data Center.** The npm package `@atlassian-dc-mcp/bitbucket`.
-  1. Read its README for the variables it needs (the Bitbucket host and a personal access token):
-     `npm view @atlassian-dc-mcp/bitbucket readme`.
-  2. The person adds it at user scope with `! claude mcp add ...`, typing the token themselves.
-  3. The token then stays in their Claude Code configuration, never in a repository.
-  4. A server added this way is loaded by the next session.
+  1. In a separate terminal, the person runs `npx @atlassian-dc-mcp/bitbucket setup`. It asks for the
+     host and a personal access token, and keeps the token in the macOS Keychain (elsewhere in a file
+     only they can read).
+  2. Then add the server at user scope. This command carries no secret, so you may run it, after
+     asking: `claude mcp add --scope user bitbucket -- npx -y @atlassian-dc-mcp/bitbucket`.
+  3. A server added this way is loaded by the next session.
 - **Mail.** There is no standard mail tool. Pelyar reads any MCP server that has both mail tools and
   answers in the shapes the README describes under *Mail*. If no server has them, say so plainly:
   Mail stays off.
@@ -105,6 +114,13 @@ The person can make the same changes themselves, with `/plugin configure <instal
 
 | Key | Default | Values |
 |---|---|---|
+| `title` | empty | the panel's title; empty is "Pelyar" |
+| `background` | `none` | `none`, `slate`, `graphite`, `midnight`, `espresso`, `moss` |
+| `showContext` | `true` | the context meter and its nudge |
+| `showSessionCommands` | `true` | the Catchup, Wrapup and Clear buttons |
+| `showModel` | `true` | the model and effort chips |
+| `showTodos` | `true` | the todo list |
+| `showCommands` | `true` | the commands under Work |
 | `showPrs`, `showReviewPrs` | `true` | My PRs, Other PRs |
 | `prSource` | `auto` | `auto`, `github`, `gitlab`, `bitbucket` |
 | `githubHost`, `gitlabHost` | empty | empty for github.com, or the host glab is logged in to; else a GitHub Enterprise or self-managed GitLab host |
@@ -120,6 +136,8 @@ The person can make the same changes themselves, with `/plugin configure <instal
 | `pomodoroLength` | `25/5` | `25/5`, `45/15`, `50/10` |
 | `showSessions` | `true` | the other Claude Code windows |
 | `showTeam` | `false` | the skills of a team plugin, see the README's *Team skills* |
+| `teamPrefix` | empty | the team plugin's prefix; empty is `team-` |
+| `teamMarketplace` | empty | the marketplace named in the install hint |
 | `catchupCommand`, `wrapupCommand` | empty | empty runs `/pelyar:catchup` and `/pelyar:wrapup` |
 | `wrapupCommit` | `true` | whether `/pelyar:wrapup` commits `CLAUDE.md` |
 

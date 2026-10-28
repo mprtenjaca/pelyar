@@ -138,8 +138,8 @@ Then run `/reload-plugins`, or start a new session.
 1. checks what this machine already has: `gh` and `glab` and their logins, and the MCP servers with
    the tools in the table below;
 2. asks which parts you want;
-3. walks you through connecting the missing sources. Logins run in your own terminal, so Claude never
-   sees a token;
+3. walks you through connecting the missing sources. Logins run in a separate terminal window you
+   open yourself, so Claude never sees a token;
 4. switches the parts on or off in Pelyar's settings;
 5. in auto mode, adds the allow rules for the MCP tools Pelyar reads.
 
