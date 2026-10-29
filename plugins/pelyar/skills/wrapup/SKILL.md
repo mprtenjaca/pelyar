@@ -79,3 +79,6 @@ Arguments: $ARGUMENTS
   `CLAUDE.md` is written by people for people: never change it.
 - Don't rewrite sections for style. Only change what this session made out of date.
 - `docs/notes/*.open.md` are the person's own notes: read them if useful, never edit or delete them.
+
+<!-- Adapted from the /wrapup command of claude-code-setup by Graziano Felline (b33eep),
+     https://github.com/b33eep/claude-code-setup, MIT License. Notice in LICENSE. -->
