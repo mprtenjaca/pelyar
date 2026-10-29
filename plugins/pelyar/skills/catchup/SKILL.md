@@ -46,3 +46,6 @@ keeps on disk, then give a short summary. Read, don't change anything.
    - the next step according to `CLAUDE.md`, or, without one, what the changes suggest comes next.
 
 Then wait for the person to say what to work on.
+
+<!-- Adapted from the /catchup command of claude-code-setup by Graziano Felline (b33eep),
+     https://github.com/b33eep/claude-code-setup, MIT License. Notice in LICENSE. -->

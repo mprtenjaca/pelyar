@@ -111,9 +111,9 @@ Pelyar ships two skills for a different workflow:
 
 The Catchup and Wrapup buttons run these, and the context nudge suggests `/wrapup`. If you already use
 other commands for this, name them in the *Catchup command* and *Wrapup command* settings. *Wrapup
-commits* off makes Pelyar's wrapup write the files without committing them. The workflow follows
-[claude-code-setup](https://github.com/b33eep/claude-code-setup) (MIT, archived since October 2026);
-the skills are written anew for Pelyar.
+commits* off makes Pelyar's wrapup write the files without committing them. Both skills are adapted
+from [claude-code-setup](https://github.com/b33eep/claude-code-setup) by Graziano Felline; see
+[Credits](#credits).
 
 ## Install
 
@@ -272,6 +272,15 @@ atoms are declared there too. The other modules are plain code:
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for how to change it.
 
+## Credits
+
+The catchup/wrapup workflow comes from [claude-code-setup](https://github.com/b33eep/claude-code-setup)
+by Graziano Felline ([b33eep](https://github.com/b33eep)), MIT licensed. Pelyar's `catchup` and
+`wrapup` skills, and the `CLAUDE.md` layout they keep (Current Status, Next Step, Recent Decisions,
+records in `docs/records/`, open notes in `docs/notes/*.open.md`), are adapted from its `/catchup`
+and `/wrapup` commands. Its copyright notice and license are in [LICENSE](LICENSE).
+
 ## License
 
-MIT
+MIT, see [LICENSE](LICENSE). The file also carries the notice for the parts adapted from
+claude-code-setup.
