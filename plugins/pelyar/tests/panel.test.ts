@@ -184,6 +184,16 @@ function world(
       }
       return answer(spotify === null ? 'null' : JSON.stringify(spotify))
     }
+    // Windows: the same answer, from the system media controls over Windows PowerShell.
+    if (e.argv[0] === 'powershell.exe') {
+      const script = e.argv[e.argv.length - 1] ?? ''
+      const action = /\$session\.(Try(?!GetMedia)\w+)\(\)/.exec(script)?.[1]
+      if (action !== undefined) {
+        spotifyActions.push(action)
+        return answer('')
+      }
+      return answer(spotify === null || script === "'null'" ? 'null' : JSON.stringify(spotify))
+    }
     if (e.argv[0] === 'ps') return answer(sessionFiles.map(session => `${String(session.pid)} ${String(session.procStart)}`).join('\n'))
     if (e.argv[0] === 'gh') {
       if (github === undefined) throw new Error('spawn gh ENOENT')
@@ -1619,6 +1629,41 @@ describe('dashboard', () => {
     await ui.press({ key: 'spotify-pause-btn' })
     expect(kept.runs.some(command => command.includes("Application('Music'); if (app.running()) app.pause()"))).toBe(true)
     await ui.unmount()
+  })
+
+  test('on Windows Spotify is read over the system media controls, with text icons, and a press controls it', async ($, on) => {
+    const kept = world(on, {
+      env: { OS: 'Windows_NT' },
+      spotify: { app: 'Spotify', state: 'playing', title: 'Pretty Little Fears', artist: '6LACK', album: 'x', durationMs: 240_000, positionS: 7 },
+    })
+    await $.session.start(SESSION)
+    await $.command.run({ command: 'pelyar', args: 'open', ...RUN })
+    await kept.clock.advance(1)
+    const ui = await $.ui.mount({ plugin: 'pelyar', ...PANE })
+
+    const text = textOf(await $.ui.render(PANE))
+    expect(text).toContain('0:07/4:00')
+    expect(text).toContain('Pretty Little Fears · 6LACK')
+    // Windows Terminal draws ⏸ and ⏭ as emoji, so the player draws these.
+    expect(text).toContain('▮▮')
+    expect(text).not.toContain('⏸')
+    expect(kept.runs.some(command => command.startsWith('osascript'))).toBe(false)
+    await ui.press({ key: 'spotify-pause-btn' })
+    expect(kept.spotifyActions).toEqual(['TryPauseAsync'])
+    await ui.unmount()
+  })
+
+  test('on Windows Apple Music, which has no Windows app, is not asked', { options: { musicPlayer: 'music' } }, async ($, on) => {
+    const kept = world(on, {
+      env: { OS: 'Windows_NT' },
+      spotify: { app: 'Spotify', state: 'playing', title: 'Pretty Little Fears', artist: '6LACK', album: 'x', durationMs: 240_000, positionS: 7 },
+    })
+    await $.session.start(SESSION)
+    await $.command.run({ command: 'pelyar', args: 'open', ...RUN })
+    await kept.clock.advance(1)
+
+    expect(textOf(await $.ui.render(PANE))).not.toContain('Pretty Little Fears')
+    expect(kept.runs.some(command => command.startsWith('powershell.exe') && command.includes('Spotify'))).toBe(false)
   })
 
   test('the title has a row of its own, and the gear opens this plugin\'s settings', async ($, on) => {

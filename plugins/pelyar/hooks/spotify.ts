@@ -63,6 +63,57 @@ export function actionArgv(action: Action, app: string): readonly string[] {
   return ['osascript', '-l', 'JavaScript', '-e', `const app = Application('${name}'); if (app.running()) app.${ACTIONS[action]}()`]
 }
 
+// Windows has no osascript: Spotify is read and controlled through the system media controls
+// (GlobalSystemMediaTransportControlsSessionManager, the media flyout's own source), from Windows
+// PowerShell, which every Windows has. Apple Music has no Windows app, so only Spotify is asked. The
+// script answers the same JSON as nowPlayingScript, and holds no double quote so it passes as one
+// argument. Statements are joined with '; ' rather than newlines for the same reason.
+const WINDOWS_POWERSHELL = ['powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command']
+
+const WINDOWS_SESSION = [
+  '[Console]::OutputEncoding = [Text.Encoding]::UTF8',
+  'Add-Type -AssemblyName System.Runtime.WindowsRuntime',
+  "$asTask = [System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' } | Select-Object -First 1",
+  'function Await($op, [Type]$type) { $task = $asTask.MakeGenericMethod($type).Invoke($null, @($op)); [void]$task.Wait(5000); $task.Result }',
+  '$null = [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager, Windows.Media.Control, ContentType = WindowsRuntime]',
+  '$manager = Await ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager])',
+  "$session = $manager.GetSessions() | Where-Object { $_.SourceAppUserModelId -like '*Spotify*' } | Select-Object -First 1",
+]
+
+// The timeline's position is as of its last update, so a playing track's time since then is added.
+// Spotify leaves the artist out of the media controls; its window title reads "Artist - Title"
+// while it plays.
+const WINDOWS_NOW_PLAYING = [
+  ...WINDOWS_SESSION,
+  "if ($null -eq $session) { 'null'; exit }",
+  '$status = $session.GetPlaybackInfo().PlaybackStatus.ToString()',
+  "$state = if ($status -eq 'Playing') { 'playing' } elseif ($status -eq 'Paused') { 'paused' } else { 'stopped' }",
+  '$media = Await ($session.TryGetMediaPropertiesAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties])',
+  '$timeline = $session.GetTimelineProperties()',
+  '$position = $timeline.Position.TotalSeconds',
+  "if ($state -eq 'playing') { $position += ([DateTimeOffset]::Now - $timeline.LastUpdatedTime).TotalSeconds }",
+  '$artist = $media.Artist',
+  "if ([string]::IsNullOrEmpty($artist)) { $window = (Get-Process Spotify -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowTitle.EndsWith(' - ' + $media.Title) } | Select-Object -First 1).MainWindowTitle; if ($window) { $artist = $window.Substring(0, $window.Length - $media.Title.Length - 3) } }",
+  "[pscustomobject]@{ app = 'Spotify'; state = $state; title = $media.Title; artist = $artist; album = $media.AlbumTitle; durationMs = [math]::Round($timeline.EndTime.TotalMilliseconds); positionS = $position } | ConvertTo-Json -Compress",
+].join('; ')
+
+export const windowsNowPlayingArgv = (apps: readonly PlayerApp[]): readonly string[] =>
+  [...WINDOWS_POWERSHELL, apps.includes('Spotify') ? WINDOWS_NOW_PLAYING : "'null'"]
+
+const WINDOWS_ACTIONS: Record<Action, string> = {
+  '': 'TryTogglePlayPauseAsync',
+  play: 'TryPlayAsync',
+  pause: 'TryPauseAsync',
+  next: 'TrySkipNextAsync',
+  prev: 'TrySkipPreviousAsync',
+}
+
+// Like actionArgv, it does nothing while Spotify is closed.
+export const windowsActionArgv = (action: Action): readonly string[] => [
+  ...WINDOWS_POWERSHELL,
+  [...WINDOWS_SESSION, 'if ($null -eq $session) { exit }', `$null = Await ($session.${WINDOWS_ACTIONS[action]}()) ([bool])`].join('; '),
+]
+
 const NOT_AUTHORIZED = '-1743'
 
 export function errorOf(result: ProcessRunResult): Error {

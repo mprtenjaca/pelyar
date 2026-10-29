@@ -203,8 +203,15 @@ const MAIL_TOASTS = 2
 // The player icons as text (U+FE0E), drawn bold so they read larger and all at the same brightness;
 // one cell each with a space on either side, the same for Spotify and the pomodoro so their columns
 // line up. All from one Unicode block (⏵ for play, not ▶), so the font draws them the same size.
-const POMODORO_ICONS = { start: ' ⏵\uFE0E Start', pause: ' ⏸\uFE0E ', resume: ' ⏵\uFE0E ', skip: ' ⏭\uFE0E ', stop: ' ⏹\uFE0E ' } as const
-const SPOTIFY_ICONS = { prev: ' ⏮\uFE0E ', pause: ' ⏸\uFE0E ', play: ' ⏵\uFE0E ', next: ' ⏭\uFE0E ' } as const
+let POMODORO_ICONS = { start: ' ⏵︎ Start', pause: ' ⏸︎ ', resume: ' ⏵︎ ', skip: ' ⏭︎ ', stop: ' ⏹︎ ' }
+let SPOTIFY_ICONS = { prev: ' ⏮︎ ', pause: ' ⏸︎ ', play: ' ⏵︎ ', next: ' ⏭︎ ' }
+// Windows Terminal draws ⏸ ⏭ ⏹ ⏮ as emoji whatever U+FE0E asks, and ⌫ over the letter after it, so
+// on Windows (OS=Windows_NT) the player draws ◀◀ ▮▮ ▶ ▶▶ ■, each four cells so the pomodoro's and Spotify's
+// controls keep their columns, and Clear's glyph is ✕.
+const WINDOWS_POMODORO_ICONS = { start: ' ▶︎ Start', pause: ' ▮▮︎ ', resume: ' ▶︎  ', skip: ' ▶︎▶︎ ', stop: ' ■︎  ' }
+const WINDOWS_SPOTIFY_ICONS = { prev: ' ◀︎◀︎ ', pause: ' ▮▮︎ ', play: ' ▶︎  ', next: ' ▶︎▶︎ ' }
+const WINDOWS_CLEAR_GLYPH = '✕'
+let isWindows = false
 const isPlayerIcon = (text: string) => text.includes('\uFE0E')
 
 const modelLabelOf = (id: string) => MODELS.find(model => id.startsWith(model.id))?.label ?? id
@@ -1455,7 +1462,8 @@ async function loadSpotify($: EngineInterface, settings: Settings): Promise<void
     return
   }
   try {
-    const result = await $.process.run(spotifyPlayer.nowPlayingArgv(settings.musicApps))
+    const argv = isWindows ? spotifyPlayer.windowsNowPlayingArgv(settings.musicApps) : spotifyPlayer.nowPlayingArgv(settings.musicApps)
+    const result = await $.process.run(argv)
     const player = spotifyPlayer.parseNowPlaying(result, await $.clock.now())
     await update($, spotify, () => player)
     if ((await read($, spotifyError)) !== null) await update($, spotifyError, () => null)
@@ -1470,7 +1478,8 @@ async function controlSpotify($: EngineInterface, settings: Settings, pollers: P
     return
   }
   try {
-    const result = await $.process.run(spotifyPlayer.actionArgv(action, (await read($, spotify))?.app ?? ''))
+    const argv = isWindows ? spotifyPlayer.windowsActionArgv(action) : spotifyPlayer.actionArgv(action, (await read($, spotify))?.app ?? '')
+    const result = await $.process.run(argv)
     if (result.exitCode !== 0) throw spotifyPlayer.errorOf(result)
   } catch (error) {
     await update($, spotifyError, () => errorTextOf(error))
@@ -1618,6 +1627,11 @@ export const register: Register = (on, options) => {
 
   on('session.start', async ($, e, next) => {
     isDemo = demo.isDemoValue(await $.env.get('PELYAR_DEMO'))
+    isWindows = (await $.env.get('OS')) === 'Windows_NT'
+    if (isWindows) {
+      POMODORO_ICONS = WINDOWS_POMODORO_ICONS
+      SPOTIFY_ICONS = WINDOWS_SPOTIFY_ICONS
+    }
     // The demo shows Mail too, and leaves out the team, which would read the person's own plugins.
     if (isDemo) settings = { ...settings, showMail: true, showTeam: false }
     try {
@@ -2754,7 +2768,7 @@ export const register: Register = (on, options) => {
                     )
                   }}
                 >
-                  <Text color={item.color} dimColor={busy}>{`${item.glyph} `}</Text>
+                  <Text color={item.color} dimColor={busy}>{`${isWindows && item.key === 'clear' ? WINDOWS_CLEAR_GLYPH : item.glyph} `}</Text>
                   <Text bold dimColor={busy} color={armedFor(`s-${item.key}`) !== null ? 'warning' : undefined} hover={HOVER}>
                     {armedFor(`s-${item.key}`) !== null ? `${item.label}?` : item.label}
                   </Text>
