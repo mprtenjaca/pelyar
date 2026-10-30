@@ -28,6 +28,7 @@ Check all of these, without asking, in parallel where you can.
 | Linear tickets | MCP tools `list_issues` and `get_issue` on a Linear server | Your own tool list. |
 | Mail and meetings | MCP tools `list_recent_emails` and `list_calendar_events` | Your own tool list. |
 | Music, the pomodoro's notification | macOS | `uname` answers `Darwin`. |
+| Music (Spotify only) | Windows | `OS` is `Windows_NT`, and Spotify's desktop app is installed. |
 
 How to read your own tool list:
 - An MCP tool is named `mcp__<server>__<tool>`. A tool listed by name only (a deferred tool) counts.
@@ -95,8 +96,10 @@ Ask before you install anything.
 - **Mail.** There is no standard mail tool. Pelyar reads any MCP server that has both mail tools and
   answers in the shapes the README describes under *Mail*. If no server has them, say so plainly:
   Mail stays off.
-- **Music.** macOS only. The first time the panel reads Spotify or Music, macOS asks whether Claude
-  Code may control it; the person allows it. Later in System Settings → Privacy & Security → Automation.
+- **Music.** macOS, and Spotify on Windows. The first time the panel reads Spotify or Music, macOS asks
+  whether Claude Code may control it; the person allows it. Later in System Settings → Privacy & Security → Automation.
+  On Windows nothing is asked: the panel reads Spotify through the system media controls once its
+  desktop app runs. Apple Music has no Windows app, so `musicPlayer: music` shows nothing there.
 
 After each one, check that it is there now: run the CLI's `auth status`, or look in `/mcp` and your
 tool list.

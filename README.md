@@ -57,7 +57,7 @@ From the top:
   - **Pomodoro**: 25/5, 45/15 or 50/10, with a macOS notification and a sound when a round ends. It keeps
     running across `/exit`.
   - **Spotify / Apple Music**: the track playing, with previous, play/pause and next (macOS, over
-    `osascript`).
+    `osascript`; Spotify alone on Windows, over the system media controls).
   - **My PRs** and **Other PRs**: your open pull requests and the ones you review, from **GitHub** (the
     `gh` CLI), **GitLab** (the `glab` CLI) and **Bitbucket Data Center** (an MCP server), side by side.
     Each PR shows its state: ready, waiting, draft, needs work, conflict, checks failed, open tasks,
@@ -167,6 +167,7 @@ are left out without a word.
 | Linear | tickets | Linear's MCP server (`list_issues`, `get_issue`). Linear doesn't document the shape of its answers, so Pelyar reads them leniently. It hasn't been tried against the live server yet. |
 | Mail | mail, meetings | See [Mail](#mail). |
 | macOS | Spotify / Apple Music, the pomodoro notification | |
+| Windows | Spotify | The Spotify desktop app. Pelyar reads it through the system media controls, from Windows PowerShell. |
 
 The panel finds each MCP tool on whichever connected server offers it, so the server's name doesn't
 matter.
